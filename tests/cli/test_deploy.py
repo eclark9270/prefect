@@ -457,6 +457,38 @@ class TestProjectDeploySingleDeploymentYAML:
             expected_output_contains="An entrypoint or flow name must be provided.",
         )
 
+    @pytest.mark.usefixtures(
+        "project_dir_with_single_deployment_format", "interactive_console"
+    )
+    async def test_migrate_from_deployment_yaml_to_prefect_yaml(self, work_pool):
+        deployment_file = Path("deployment.yaml")
+        with deployment_file.open(mode="r") as f:
+            deploy_config = yaml.safe_load(f)
+
+        deploy_config["name"] = "test-name"
+        deploy_config["entrypoint"] = "flows/hello.py:my_flow"
+        deploy_config["work_pool"]["name"] = work_pool.name
+        deploy_config["schedule"] = {"interval": 3600}
+
+        with deployment_file.open(mode="w") as f:
+            yaml.safe_dump(deploy_config, f)
+
+        await run_sync_in_worker_thread(
+            invoke_and_assert,
+            command="deploy",
+            user_input="y" + readchar.key.ENTER,
+            expected_code=0,
+        )
+
+        with open("prefect.yaml", "r") as f:
+            config = yaml.safe_load(f)
+
+        assert len(config["deployments"]) == 1
+        assert config["deployments"][0]["name"] == "test-name"
+        assert config["deployments"][0]["entrypoint"] == "flows/hello.py:my_flow"
+        assert config["deployments"][0]["schedule"] == {"interval": 3600}
+        assert config["deployments"][0]["work_pool"]["name"] == work_pool.name
+
 
 class TestProjectDeploy:
     async def test_project_deploy(self, project_dir, prefect_client):
@@ -1196,6 +1228,53 @@ class TestProjectDeploy:
         assert deployment.name == "test-name"
         assert deployment.work_pool_name == "test-created-via-deploy"
         assert deployment.entrypoint == "./flows/hello.py:my_flow"
+
+    @pytest.mark.usefixtures(
+        "project_dir_with_single_deployment_format", "interactive_console"
+    )
+    async def test_migrate_from_deployment_yaml_to_prefect_yaml(self, work_pool):
+        deployment_file = Path("deployment.yaml")
+        with deployment_file.open(mode="r") as f:
+            deploy_config = yaml.safe_load(f)
+
+        deploy_config["deployments"] = [
+            {
+                "name": "test-name",
+                "entrypoint": "flows/hello.py:my_flow",
+                "work_pool": {
+                    "name": work_pool.name,
+                },
+                "schedule": {
+                    "interval": 3600,
+                },
+            }
+        ]
+
+        with deployment_file.open(mode="w") as f:
+            yaml.safe_dump(deploy_config, f)
+
+        await run_sync_in_worker_thread(
+            invoke_and_assert,
+            command="deploy",
+            # accept migration
+            user_input="y" + readchar.key.ENTER,
+            expected_code=0,
+            expected_output_contains=[
+                "Successfully copied your deployment configurations into your"
+                " prefect.yaml file! Once you've verified that all your deployment"
+                " configurations in your prefect.yaml file are correct, you can delete"
+                " your deployment.yaml file."
+            ],
+        )
+
+        with open("prefect.yaml", "r") as f:
+            config = yaml.safe_load(f)
+
+        assert len(config["deployments"]) == 1
+        assert config["deployments"][0]["name"] == "test-name"
+        assert config["deployments"][0]["entrypoint"] == "flows/hello.py:my_flow"
+        assert config["deployments"][0]["schedule"] == {"interval": 3600}
+        assert config["deployments"][0]["work_pool"]["name"] == work_pool.name
 
 
 class TestSchedules:
@@ -2296,3 +2375,64 @@ class TestMultiDeploy:
             "An important name/test-name-1"
         )
         assert deployment.name == "test-name-1"
+
+    @pytest.mark.usefixtures(
+        "project_dir_with_single_deployment_format", "interactive_console"
+    )
+    async def test_migrate_from_deployment_yaml_to_prefect_yaml(self, work_pool):
+        deployment_file = Path("deployment.yaml")
+        with deployment_file.open(mode="r") as f:
+            deploy_config = yaml.safe_load(f)
+
+        deploy_config["deployments"] = [
+            {
+                "name": "test-name-1",
+                "entrypoint": "flows/hello.py:my_flow",
+                "work_pool": {
+                    "name": work_pool.name,
+                },
+                "schedule": {
+                    "interval": 3600,
+                },
+            },
+            {
+                "name": "test-name-2",
+                "entrypoint": "flows/hello.py:my_flow",
+                "work_pool": {
+                    "name": work_pool.name,
+                },
+                "schedule": {
+                    "interval": 3600,
+                },
+            },
+        ]
+
+        with deployment_file.open(mode="w") as f:
+            yaml.safe_dump(deploy_config, f)
+
+        await run_sync_in_worker_thread(
+            invoke_and_assert,
+            command="deploy -n test-name-1",
+            # accept migration
+            user_input="y" + readchar.key.ENTER,
+            expected_code=0,
+            expected_output_contains=[
+                "Successfully copied your deployment configurations into your"
+                " prefect.yaml file! Once you've verified that all your deployment"
+                " configurations in your prefect.yaml file are correct, you can delete"
+                " your deployment.yaml file."
+            ],
+        )
+
+        with open("prefect.yaml", "r") as f:
+            config = yaml.safe_load(f)
+
+        assert len(config["deployments"]) == 2
+        assert config["deployments"][0]["name"] == "test-name-1"
+        assert config["deployments"][0]["entrypoint"] == "flows/hello.py:my_flow"
+        assert config["deployments"][0]["schedule"] == {"interval": 3600}
+        assert config["deployments"][0]["work_pool"]["name"] == work_pool.name
+        assert config["deployments"][1]["name"] == "test-name-2"
+        assert config["deployments"][1]["entrypoint"] == "flows/hello.py:my_flow"
+        assert config["deployments"][1]["schedule"] == {"interval": 3600}
+        assert config["deployments"][1]["work_pool"]["name"] == work_pool.name
